@@ -9,29 +9,52 @@ from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 
 
+
 load_dotenv()
+
+
 
 app = FastAPI()
 schema_docs = get_schema_docs()
 
+try:
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001",
+        google_api_key=os.getenv("GEMINI_API_KEY")
+    )
+    pass
+except Exception as e:
+    print("[ERROR] Embeddings initialization failed:", e)
+    embeddings = None
 
-embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/embedding-001",
-    google_api_key=os.getenv("GEMINI_API_KEY")
-)
+if embeddings and schema_docs:
+    vectorstore = FAISS.from_texts(schema_docs, embeddings)
+    retriever = vectorstore.as_retriever()
+    pass
+else:
+    print("[ERROR] Vectorstore/retriever not initialized due to missing embeddings or schema_docs.")
+    retriever = None
 
+try:
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        google_api_key=os.getenv("GEMINI_API_KEY"),
+        convert_system_message_to_human=True
+    )
+    pass
+except Exception as e:
+    print("[ERROR] LLM initialization failed:", e)
+    llm = None
 
-vectorstore = FAISS.from_texts(schema_docs, embeddings)
-retriever = vectorstore.as_retriever()
-
-
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
-
-
-qa = RetrievalQA.from_chain_type(
-    llm=llm,
-    retriever=retriever
-)
+if llm and retriever:
+    qa = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever
+    )
+    pass
+else:
+    print("[ERROR] QA chain not initialized due to missing llm or retriever.")
+    qa = None
 
 
 
@@ -44,26 +67,33 @@ def is_sql_query(text):
 
 if __name__ == "__main__":
     query = input("Enter your question:")
-    result = qa.run(query)
-    print("❓ Query:", query)
-    # Remove code block markers if present
-    cleaned_result = result.strip()
+    # User query input
+    if qa:
+        try:
+            result = qa.run(query)
+            print("❓ Query:", query)
+            # Remove code block markers if present
+            cleaned_result = result.strip()
 
-    if cleaned_result.startswith("```sql") and cleaned_result.endswith("```"):
-        cleaned_result = cleaned_result[6:-3].strip()
-    elif cleaned_result.startswith("```") and cleaned_result.endswith("```"):
-        cleaned_result = cleaned_result[3:-3].strip()
+            if cleaned_result.startswith("```sql") and cleaned_result.endswith("```"):
+                cleaned_result = cleaned_result[6:-3].strip()
+            elif cleaned_result.startswith("```") and cleaned_result.endswith("```"):
+                cleaned_result = cleaned_result[3:-3].strip()
 
-    if is_sql_query(cleaned_result):
-        print("Detected SQL query. Executing...")
-        # Split by semicolon, filter out empty queries
-        queries = [q.strip() for q in cleaned_result.split(';') if q.strip()]
-        for idx, sql in enumerate(queries, 1):
-            print(f"\n▶️ Executing Query {idx}: {sql}")
-            try:
-                sql_result = execute_any_sql(sql)
-                print("🗄️ SQL Result:", sql_result)
-            except Exception as e:
-                print(f"❌ Error executing query {idx}: {e}")
+            if is_sql_query(cleaned_result):
+                print("Detected SQL query. Executing...")
+                # Split by semicolon, filter out empty queries
+                queries = [q.strip() for q in cleaned_result.split(';') if q.strip()]
+                for idx, sql in enumerate(queries, 1):
+                    print(f"\n▶️ Executing Query {idx}: {sql}")
+                    try:
+                        sql_result = execute_any_sql(sql)
+                        print("🗄️ SQL Result:", sql_result)
+                    except Exception as e:
+                        print(f"❌ Error executing query {idx}: {e}")
+            else:
+                print("🤖 Answer:", result)
+        except Exception as e:
+            print("[ERROR] Exception during qa.run:", e)
     else:
-        print("🤖 Answer:", result)
+        print("[ERROR] QA chain is not initialized.")
