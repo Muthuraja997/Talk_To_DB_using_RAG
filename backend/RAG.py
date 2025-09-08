@@ -25,7 +25,7 @@ vectorstore = FAISS.from_texts(schema_docs, embeddings)
 retriever = vectorstore.as_retriever()
 
 
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=os.getenv("GEMINI_API_KEY"))
 
 
 qa = RetrievalQA.from_chain_type(
@@ -56,7 +56,14 @@ if __name__ == "__main__":
 
     if is_sql_query(cleaned_result):
         print("Detected SQL query. Executing...")
-        sql_result = execute_any_sql(cleaned_result)
-        print("🗄️ SQL Result:", sql_result)
+        # Split by semicolon, filter out empty queries
+        queries = [q.strip() for q in cleaned_result.split(';') if q.strip()]
+        for idx, sql in enumerate(queries, 1):
+            print(f"\n▶️ Executing Query {idx}: {sql}")
+            try:
+                sql_result = execute_any_sql(sql)
+                print("🗄️ SQL Result:", sql_result)
+            except Exception as e:
+                print(f"❌ Error executing query {idx}: {e}")
     else:
         print("🤖 Answer:", result)
